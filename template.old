@@ -1,0 +1,197 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  app-curso-aws-minsait
+
+  Sample SAM Template for app-curso-aws-minsait
+
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    Timeout: 3
+    MemorySize: 128
+
+Resources:
+  #########################################################
+  ##                  BUCKET WEB APP
+  #########################################################
+
+  bucketS3RepositoryObjects:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "webapp-app-curso-aws-minsait-${AWS::Region}-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  bucketS3WebSitePolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref bucketS3RepositoryObjects
+      PolicyDocument:
+        Version: "2012-10-17"
+        Id: PolicyForCloudFrontWebApp
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub
+              - "arn:aws:s3:::${Bucket}/*"
+              - Bucket: !Ref bucketS3RepositoryObjects
+
+  #########################################################
+  ##                  CLOUDFRONT WEB APP
+  #########################################################
+
+  cloudFrontWebAppOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "webapp-control-origin-app-curso-aws-minsait-${AWS::Region}-${AWS::AccountId}"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  cloudFrontWebAppDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+          - DomainName: !GetAtt bucketS3RepositoryObjects.RegionalDomainName
+            Id: !Sub "webapp-origin-s3-app-curso-aws-minsait-${AWS::Region}-${AWS::AccountId}"
+            OriginAccessControlId: !GetAtt cloudFrontWebAppOriginAccessControl.Id
+            S3OriginConfig: {}
+        Enabled: true
+        DefaultRootObject: index.html
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          TargetOriginId: !Sub "webapp-origin-s3-app-curso-aws-minsait-${AWS::Region}-${AWS::AccountId}"
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          ViewerProtocolPolicy: redirect-to-https
+        PriceClass: PriceClass_All
+        CustomErrorResponses:
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+        Restrictions:
+          GeoRestriction:
+            RestrictionType: whitelist
+            Locations:
+              - US
+              - BR
+
+
+  #########################################################
+  ##                  API GATEWAY
+  #########################################################
+
+  HelloWorldAPItwo:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: dev
+
+  #########################################################
+  ##                  LAMBDA FUNCTIONS
+  #########################################################
+
+  HelloWorldDatabasetwo:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./src
+      Handler: handler.lambda_handler
+      Runtime: python3.8
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref tarefaTable
+      Events:
+        GetAlltarefa:
+          Type: HttpApi
+          Properties:
+            Path: /tarefa
+            Method: GET
+        GetAnItem:
+          Type: HttpApi
+          Properties:
+            Path: /tarefa/{tarefa}
+            Method: GET
+        DeleteAnItem:
+          Type: HttpApi
+          Properties:
+            Path: /tarefa/{tarefa}
+            Method: DELETE
+        CreateOrUpdateItem:
+          Type: HttpApi
+          Properties:
+            Path: /tarefa
+            Method: PUT
+
+  #########################################################
+  ##                  DYNAMODB TABLE
+  #########################################################
+
+  tarefaTable:
+    Type: 'AWS::DynamoDB::Table'
+    Properties:
+      TableName: 'Tarefas'
+      AttributeDefinitions:
+        - AttributeName: 'tarefa'
+          AttributeType: 'S'
+        - AttributeName: 'data'
+          AttributeType: 'S'
+      KeySchema:
+        - AttributeName: 'tarefa'
+          KeyType: 'HASH'
+        - AttributeName: 'data'
+          KeyType: 'RANGE'
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+
+Outputs:
+  WebAppDomain:
+    Value: !GetAtt cloudFrontWebAppDistribution.DomainName
+  ApiEndpoint:
+    Description: "The invoke URL for our HTTP API"
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/tarefa"
+  Function:
+    Description: "DynamoDB handler function ARN"
+    Value: !GetAtt HelloWorldDatabasetwo.Arn
+
+#     # You can add LoggingConfig parameters such as the Logformat, Log Group, and SystemLogLevel or ApplicationLogLevel. Learn more here https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-resource-function.html#sam-function-loggingconfig.
+#     LoggingConfig:
+#       LogFormat: JSON
+# Resources:
+#   HelloWorldFunction:
+#     Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+#     Properties:
+#       CodeUri: hello_world/
+#       Handler: app.lambda_handler
+#       Runtime: python3.9
+#       Architectures:
+#       - x86_64
+#       Events:
+#         HelloWorld:
+#           Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
+#           Properties:
+#             Path: /hello
+#             Method: get
+
+# Outputs:
+#   # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
+#   # Find out more about other implicit resources you can reference within SAM
+#   # https://github.com/awslabs/serverless-application-model/blob/master/docs/internals/generated_resources.rst#api
+#   HelloWorldApi:
+#     Description: API Gateway endpoint URL for Prod stage for Hello World function
+#     Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/hello/"
+#   HelloWorldFunction:
+#     Description: Hello World Lambda Function ARN
+#     Value: !GetAtt HelloWorldFunction.Arn
+#   HelloWorldFunctionIamRole:
+#     Description: Implicit IAM Role created for Hello World function
+#     Value: !GetAtt HelloWorldFunctionRole.Arn

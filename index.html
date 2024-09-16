@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerenciamento de Tarefas</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        html, body {
+            height: 100%; /* Garante que o body e o html ocupem toda a altura da viewport */
+            margin: 0; /* Remove margens padrão */
+        }
+
+        body {
+            display: flex;
+            flex-direction: column; /* Alinha os itens em coluna */
+            justify-content: center; /* Centraliza horizontalmente */
+            align-items: center; /* Centraliza verticalmente */
+            background-color: #f8f9fa; /* Cor de fundo opcional */
+        }
+
+        #tarefaCarousel {
+            width: 80%; /* Define a largura do carrossel */
+            margin-bottom: 20px; /* Adiciona margem abaixo do carrossel */
+        }
+
+        .carousel-item {
+            text-align: center;
+            padding: 20px;
+        }
+
+        .carousel-item h5 {
+            margin: 0;
+        }
+
+        #tarefasTableBody {
+            width: 80%; /* Define a largura da tabela */
+            border-spacing: 10px; /* Aumenta o espaçamento entre as células */
+            margin-bottom: 20px; /* Adiciona margem abaixo da tabela */
+        }
+
+        #tarefasTableBody th, #tarefasTableBody td {
+            white-space: nowrap; /* Impede a quebra de linha */
+            padding: 15px; /* Aumenta o espaçamento interno das células */
+            text-align: left; /* Alinha o texto à esquerda */
+        }
+
+        #addtarefaButton {
+            background-color: #28a745; /* Cor verde para o botão */
+            color: white; /* Texto branco */
+            border: none; /* Remove a borda padrão */
+        }
+
+        #addtarefaButton:hover {
+            background-color: #218838; /* Cor verde escura ao passar o mouse */
+        }
+        .carousel-control-prev, .carousel-control-next {
+            width: 5%; /* Ajusta a largura dos controles, se necessário */
+            background: none; /* Remove o background dos controles */
+            border: none; /* Remove a borda dos controles */
+        }
+
+        .carousel-control-prev-icon::before, .carousel-control-next-icon::before {
+            font-size: 2rem; /* Ajusta o tamanho da seta */
+            color: black; /* Define a cor da seta como verde claro */
+        }
+
+        .carousel-control-prev-icon::before {
+            content: '‹'; /* Define a seta esquerda */
+        }
+
+        .carousel-control-next-icon::before {
+            content: '›'; /* Define a seta direita */
+        }
+
+    </style>
+<script>
+    // Função para chamar a API e buscar as tarefas do DynamoDB
+    var getAllTarefas = () => {
+        var requestOptions = {
+            method: 'GET',
+            redirect: 'follow'
+        };
+
+        // Chama a API para buscar todas as tarefas
+        fetch("https://ub4vo0lzuf.execute-api.us-east-1.amazonaws.com/dev", requestOptions)
+            .then(response => response.json()) // Parseia a resposta como JSON
+            .then(result => {
+                console.log('Resultado da API GET:', result);
+                // Parseia o campo 'body' da resposta
+                const parsedBody = JSON.parse(result.body);
+                // Verifica se a resposta contém os itens esperados
+                if (parsedBody && parsedBody.items) {
+                    // Remove tarefas antigas
+                    removeAllTarefasFromTable();
+                    // Adiciona as novas tarefas retornadas do DynamoDB
+                    parsedBody.items.forEach(tarefaObj => {
+                        addTarefaToTable(tarefaObj.tarefa, tarefaObj.data);
+                    });
+                } else {
+                    console.error('Resposta da API não contém itens esperados:', parsedBody);
+                }
+            })
+            .catch(error => console.log('Erro na API GET:', error));
+    }
+
+    // Função para remover todas as tarefas da tabela
+    function removeAllTarefasFromTable() {
+        const table = document.getElementById("tarefasTableBody");
+        while (table.rows.length > 0) {
+            table.deleteRow(0);
+        }
+    }
+
+    // Função para adicionar tarefa à tabela
+    function addTarefaToTable(tarefa, data) {
+        const table = document.getElementById("tarefasTableBody");
+        const newRow = table.insertRow();
+        const tarefaCell = newRow.insertCell(0);
+        const dataCell = newRow.insertCell(1);
+        const removeCell = newRow.insertCell(2);
+        const deleteCell = newRow.insertCell(3);
+
+        tarefaCell.textContent = tarefa;
+        dataCell.textContent = data;
+
+        // Cria o botão de remover
+        removeCell.innerHTML = `<button class="btn btn-info btn-sm"  onclick="removeTarefa(this)">Ocultar</button>`;
+        // Cria o botão de apagar
+        deleteCell.innerHTML = `<button class="btn btn-outline-danger btn-sm"  onclick="deleteTarefa('${tarefa}', '${data}', this)">Apagar</button>`;
+    }
+
+    // Função para remover uma tarefa da tabela
+    function removeTarefa(button) {
+        const row = button.parentNode.parentNode;
+        row.parentNode.removeChild(row);
+    }
+
+    // Função para apagar uma tarefa do DynamoDB
+    function deleteTarefa(tarefa, data, button) {
+        console.log('Iniciando deleção da tarefa:', tarefa, data);
+        var myHeaders = new Headers();
+        myHeaders.append("Content-Type", "application/json");
+
+        var raw = JSON.stringify({ "body": JSON.stringify({ "tarefa": tarefa, "data": data }) });
+        console.log('Corpo da requisição DELETE:', raw);
+
+        var requestOptions = {
+            method: 'DELETE',
+            headers: myHeaders,
+            body: raw,
+            redirect: 'follow'
+        };
+
+        fetch("https://ub4vo0lzuf.execute-api.us-east-1.amazonaws.com/dev", requestOptions)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Erro na resposta da API: ' + response.statusText);
+                }
+                return response.json();
+            })
+            .then(result => {
+                console.log('Resultado da API DELETE:', result);
+                // Remove a tarefa da tabela após apagar do DynamoDB
+                removeTarefa(button);
+            })
+            .catch(error => console.error('Erro ao apagar a tarefa:', error));
+    }
+
+    // Função para adicionar nova tarefa (simulando API POST)
+    var callAPI = (tarefa, data) => {
+        console.log('Iniciando adição da tarefa:', tarefa, data);
+        var myHeaders = new Headers();
+        myHeaders.append("Content-Type", "application/json");
+
+        var raw = JSON.stringify({ "tarefa": tarefa, "data": data });
+        console.log('Corpo da requisição POST:', raw);
+
+        var requestOptions = {
+            method: 'POST',
+            headers: myHeaders,
+            body: raw,
+            redirect: 'follow'
+        };
+
+        fetch("https://ub4vo0lzuf.execute-api.us-east-1.amazonaws.com/dev", requestOptions)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Erro na resposta da API: ' + response.statusText);
+                }
+                return response.json();
+            })
+            .then(result => {
+                console.log('Resultado da API POST:', result);
+                let parsedResult = JSON.parse(result.body);
+                addTarefaToTable(tarefa, data);
+            })
+            .catch(error => console.error('Erro ao adicionar a tarefa:', error));
+    }
+
+    // Ao carregar a página, busca todas as tarefas
+    document.addEventListener("DOMContentLoaded", () => {
+        getAllTarefas(); // Carrega as tarefas na inicialização
+
+        const tarefaForm = document.getElementById("tarefaForm");
+        tarefaForm.addEventListener("submit", (event) => {
+            event.preventDefault();
+            const tarefa = document.getElementById("tarefa").value;
+            const data = document.getElementById("data").value;
+            
+            // Chama a API para adicionar nova tarefa
+            callAPI(tarefa, data);
+
+            // Reseta o formulário após o envio
+            tarefaForm.reset();
+        });
+    });
+</script>
+
+</head>
+<body>
+    <div class="container">
+        <h1>Gerenciamento de Tarefas</h1>
+
+        <!-- Tabela de tarefas -->
+        <table class="table table-hover">
+            <thead class="thead-dark">
+                <tr>
+                    <th>Tarefa</th>
+                    <th>Data</th>
+                    <th>Ação</th>
+                    <th>Apagar</th>
+                </tr>
+            </thead>
+            <tbody id="tarefasTableBody">
+            <!-- As tarefas adicionadas serão inseridas aqui -->
+            </tbody>
+        </table>
+
+        <!-- Formulário para adicionar tarefas -->
+        <div class="container container-form">
+            <form id="tarefaForm">
+                <div class="form-group">
+                    <label for="tarefa">Tarefa:</label>
+                    <input type="text" id="tarefa" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label for="data">Data:</label>
+                    <input type="date" id="data" class="form-control" style="width: 170px;" required>
+                </div>
+                <button type="submit" class="btn btn-success btn-lg">Adicionar Tarefa</button>
+                <button type="button" class="btn btn-info btn-lg" onclick="getAllTarefas()">Atualizar Tarefas</button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

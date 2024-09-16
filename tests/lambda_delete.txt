@@ -1,0 +1,50 @@
+import json
+import boto3
+
+# Crie o recurso DynamoDB usando o AWS SDK
+dynamodb = boto3.resource('dynamodb')
+
+# Selecione a tabela do DynamoDB
+table = dynamodb.Table('HelloWorldDatabase')
+
+# Função handler para o Lambda
+def lambda_handler(event, context):
+    try:
+        # Verifique se o evento contém os dados necessários
+        if 'tarefa' not in event['body'] or 'data' not in event['body']:
+            raise ValueError("Os campos 'tarefa' e 'data' são obrigatórios para deletar.")
+        
+        # Extraia os valores do evento
+        body = json.loads(event['body'])
+        tarefa = body['tarefa']
+        data = body['data']
+        
+        # Delete o item da tabela DynamoDB
+        delete_response = table.delete_item(
+            Key={
+                'tarefa': tarefa,
+                'data': data
+            }
+        )
+        
+        # Retorne uma resposta de sucesso
+        return {
+            'statusCode': 200,
+            'headers': {
+                'Content-Type': 'application/json'
+            },
+            'body': json.dumps({
+                'message': 'Tarefa deletada com sucesso',
+                'deleteResponse': delete_response
+            })
+        }
+    
+    except Exception as e:
+        # Retorne uma mensagem de erro em caso de exceção
+        return {
+            'statusCode': 400,
+            'headers': {
+                'Content-Type': 'application/json'
+            },
+            'body': json.dumps(f"Erro: {str(e)}")
+        }

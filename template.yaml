@@ -1,0 +1,280 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  app-curso-aws-minsait
+
+  Sample SAM Template for app-curso-aws-minsait
+
+Resources:
+  #########################################################
+  ##                  BUCKET WEB APP
+  #########################################################
+
+  bucketS3RepositoryObjects:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "webapp-gerencia-tarefa-app-${AWS::Region}-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  bucketS3WebSitePolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref bucketS3RepositoryObjects
+      PolicyDocument:
+        Version: "2012-10-17"
+        Id: PolicyForCloudFrontWebApp
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub
+              - "arn:aws:s3:::${Bucket}/*"
+              - Bucket: !Ref bucketS3RepositoryObjects
+
+  #########################################################
+  ##                  CLOUDFRONT WEB APP
+  #########################################################
+
+  cloudFrontWebAppOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "webapp-control-origin-gerencia-tarefa-${AWS::Region}-${AWS::AccountId}"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  cloudFrontWebAppDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+          - DomainName: !GetAtt bucketS3RepositoryObjects.RegionalDomainName
+            Id: !Sub "webapp-origin-s3-gerencia-tarefa-${AWS::Region}-${AWS::AccountId}"
+            OriginAccessControlId: !GetAtt cloudFrontWebAppOriginAccessControl.Id
+            S3OriginConfig: {}
+        Enabled: true
+        DefaultRootObject: index.html
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          TargetOriginId: !Sub "webapp-origin-s3-gerencia-tarefa-${AWS::Region}-${AWS::AccountId}"
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          ViewerProtocolPolicy: redirect-to-https
+        PriceClass: PriceClass_All
+        CustomErrorResponses:
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+        Restrictions:
+          GeoRestriction:
+            RestrictionType: whitelist
+            Locations:
+              - US
+              - BR
+
+  #########################################################
+  ##                  DYNAMODB TABLE
+  #########################################################
+
+  dynamoDBGerenciaTarefaTable:
+    Type: 'AWS::DynamoDB::Table'
+    Properties:
+      TableName: 'Tarefas'
+      AttributeDefinitions:
+        - AttributeName: 'tarefa'
+          AttributeType: 'S'
+        - AttributeName: 'data'
+          AttributeType: 'S'
+      KeySchema:
+        - AttributeName: 'tarefa'
+          KeyType: 'HASH'
+        - AttributeName: 'data'
+          KeyType: 'RANGE'
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+
+  #########################################################
+  ##                  LAMBDA FUNCTIONS
+  #########################################################
+
+  GerenciaTarefaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Description: 'Função Lambda que interage com a tabela DynamoDB Tarefas'
+      MemorySize: 128
+      Timeout: 3
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.8
+      Architectures:
+        - x86_64
+      EphemeralStorage:
+        Size: 512
+      EventInvokeConfig:
+        MaximumEventAgeInSeconds: 21600
+        MaximumRetryAttempts: 2
+      PackageType: Zip
+      Policies:
+        - Statement:
+            - Sid: DynamoDBAccessPolicy
+              Effect: Allow
+              Action:
+                - dynamodb:PutItem
+                - dynamodb:DeleteItem
+                - dynamodb:GetItem
+                - dynamodb:Scan
+                - dynamodb:Query
+                - dynamodb:UpdateItem
+              Resource: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${dynamoDBGerenciaTarefaTable}"
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+              Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+            - Effect: Allow
+              Action:
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*"
+      Events:
+        Api1:
+          Type: Api
+          Properties:
+            Path: /tarefa
+            Method: POST
+        Api2:
+          Type: Api
+          Properties:
+            Path: /tarefa/{tarefaId}
+            Method: GET
+        Api3:
+          Type: Api
+          Properties:
+            Path: /tarefa/{tarefaId}
+            Method: DELETE
+      RuntimeManagementConfig:
+        UpdateRuntimeOn: Auto
+
+  #########################################################
+  ##                  API GATEWAY
+  #########################################################
+
+  apiRestFullstackGerenciaTarefa:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: v1
+      DefinitionBody:
+        openapi: 3.0.1
+        info:
+          title: 'GerenciaTarefaAPI'
+          description: 'API para gerenciar tarefas'
+          version: '1.0'
+        paths:
+          /tarefa:
+            post:
+              summary: 'Adicionar tarefa'
+              operationId: 'addTarefa'
+              requestBody:
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        tarefa:
+                          type: string
+                        data:
+                          type: string
+                      required:
+                        - tarefa
+                        - data
+              responses:
+                '200':
+                  description: 'Operação bem-sucedida'
+                  content:
+                    application/json:
+                      schema:
+                        type: object
+              x-amazon-apigateway-integration:
+                type: 'aws_proxy'
+                uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GerenciaTarefaFunction.Arn}/invocations"
+                httpMethod: POST
+                payloadFormatVersion: '2.0'
+          /tarefa/{tarefaId}:
+            get:
+              summary: 'Obter tarefa'
+              operationId: 'getTarefa'
+              parameters:
+                - name: tarefaId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+              responses:
+                '200':
+                  description: 'Operação bem-sucedida'
+                  content:
+                    application/json:
+                      schema:
+                        type: object
+              x-amazon-apigateway-integration:
+                type: 'aws_proxy'
+                uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GerenciaTarefaFunction.Arn}/invocations"
+                httpMethod: POST
+                payloadFormatVersion: '2.0'
+            delete:
+              summary: 'Excluir tarefa'
+              operationId: 'deleteTarefa'
+              parameters:
+                - name: tarefaId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+              responses:
+                '200':
+                  description: 'Operação bem-sucedida'
+                  content:
+                    application/json:
+                      schema:
+                        type: object
+              x-amazon-apigateway-integration:
+                type: 'aws_proxy'
+                uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GerenciaTarefaFunction.Arn}/invocations"
+                httpMethod: POST
+                payloadFormatVersion: '2.0'
+
+  LambdaApiGatewayInvoke:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref GerenciaTarefaFunction
+      Principal: apigateway.amazonaws.com
+
+Outputs:
+  WebAppDomain:
+    Description: "Domínio da distribuição CloudFront para a aplicação web"
+    Value: !GetAtt cloudFrontWebAppDistribution.DomainName
+
+  DynamoDBTableName:
+    Description: "Nome da tabela DynamoDB para referência na Lambda"
+    Value: !Ref dynamoDBGerenciaTarefaTable
+
+  DynamoDBTableArn:
+    Description: "ARN da tabela DynamoDB para referência na Lambda"
+    Value: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${dynamoDBGerenciaTarefaTable}"
+
+  LambdaFunctionArn:
+    Description: "ARN da função Lambda"
+    Value: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function/${GerenciaTarefaFunction}"
+
+  ApiGatewayInvokeURL:
+    Description: "URL do API Gateway para invocar a Lambda"
+    Value: !Sub "https://${apiRestFullstackGerenciaTarefa}.execute-api.${AWS::Region}.amazonaws.com/v1/"

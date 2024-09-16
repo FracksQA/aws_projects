@@ -1,0 +1,37 @@
+import json
+import boto3
+
+# Crie o recurso DynamoDB usando o AWS SDK
+dynamodb = boto3.resource('dynamodb')
+
+# Selecione a tabela do DynamoDB
+table = dynamodb.Table('HelloWorldDatabase')
+
+# Função handler para o Lambda
+def lambda_handler(event, context):
+    try:
+        # Escaneie todos os itens da tabela DynamoDB
+        scan_response = table.scan()
+        items = scan_response.get('Items', [])
+        
+        # Retorne uma resposta de sucesso com todos os itens
+        return {
+            'statusCode': 200,
+            'headers': {
+                'Content-Type': 'application/json'
+            },
+            'body': json.dumps({
+                'message': 'Operação realizada com sucesso',
+                'items': items
+            })
+        }
+    
+    except Exception as e:
+        # Retorne uma mensagem de erro em caso de exceção
+        return {
+            'statusCode': 400,
+            'headers': {
+                'Content-Type': 'application/json'
+            },
+            'body': json.dumps(f"Erro: {str(e)}")
+        }
